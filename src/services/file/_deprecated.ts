@@ -1,31 +1,24 @@
-import { clientDB } from '@/database/client/db';
-import { FileModel } from '@/database/server/models/file';
-import { BaseClientService } from '@/services/baseClientService';
+import { FileModel } from '@/database/_deprecated/models/file';
 import { clientS3Storage } from '@/services/file/ClientS3';
 import { FileItem, UploadFileParams } from '@/types/files';
 
 import { IFileService } from './type';
 
-export class ClientService extends BaseClientService implements IFileService {
-  private get fileModel(): FileModel {
-    return new FileModel(clientDB as any, this.userId);
-  }
-
+export class ClientService implements IFileService {
   async createFile(file: UploadFileParams) {
     // save to local storage
     // we may want to save to a remote server later
-    const res = await this.fileModel.create(
-      {
-        fileHash: file.hash,
-        fileType: file.fileType,
-        knowledgeBaseId: file.knowledgeBaseId,
-        metadata: file.metadata,
-        name: file.name,
-        size: file.size,
-        url: file.url!,
-      },
-      true,
-    );
+    const res = await FileModel.create({
+      createdAt: Date.now(),
+      data: undefined,
+      fileHash: file.hash,
+      fileType: file.fileType,
+      metadata: file.metadata,
+      name: file.name,
+      saveMode: 'url',
+      size: file.size,
+      url: file.url,
+    } as any);
 
     // get file to base64 url
     const base64 = await this.getBase64ByFileHash(file.hash!);
@@ -36,17 +29,24 @@ export class ClientService extends BaseClientService implements IFileService {
     };
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async checkFileHash(_hash: string) {
+    return { isExist: false, metadata: {} };
+  }
+
   async getFile(id: string): Promise<FileItem> {
-    const item = await this.fileModel.findById(id);
+    const item = await FileModel.findById(id);
     if (!item) {
       throw new Error('file not found');
     }
 
-    // arrayBuffer to url
-    const fileItem = await clientS3Storage.getObject(item.fileHash!);
-    if (!fileItem) throw new Error('file not found');
+    // arrayBuffer to blob or base64 to blob
+    const blob = !!item.data
+      ? new Blob([item.data!], { type: item.fileType })
+      : // @ts-ignore
+        new Blob([Buffer.from(item.base64!, 'base64')], { type: item.fileType });
 
-    const url = URL.createObjectURL(fileItem);
+    const url = URL.createObjectURL(blob);
 
     return {
       createdAt: new Date(item.createdAt),
@@ -60,19 +60,15 @@ export class ClientService extends BaseClientService implements IFileService {
   }
 
   async removeFile(id: string) {
-    await this.fileModel.delete(id, false);
+    return FileModel.delete(id);
   }
 
   async removeFiles(ids: string[]) {
-    await this.fileModel.deleteMany(ids, false);
+    await Promise.all(ids.map((id) => FileModel.delete(id)));
   }
 
   async removeAllFiles() {
-    return this.fileModel.clear();
-  }
-
-  async checkFileHash(hash: string) {
-    return this.fileModel.checkHash(hash);
+    return FileModel.clear();
   }
 
   private async getBase64ByFileHash(hash: string) {

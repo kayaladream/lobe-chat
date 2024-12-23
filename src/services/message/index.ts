@@ -1,5 +1,5 @@
-import { ClientService as DeprecatedService } from './client';
-import { ClientService } from './pglite';
+import { ClientService as DeprecatedService } from './_deprecated';
+import { ClientService } from './client';
 import { ServerService } from './server';
 
 const clientService =
