@@ -69,19 +69,31 @@ export class AiInfraRepos {
     const providers = await this.getAiProviderList();
     const enabledProviders = providers.filter((item) => item.enabled);
 
-    const userEnabledModels = await this.aiModelModel.getEnabledModels();
+    const allModels = await this.aiModelModel.getAllModels();
+    const userEnabledModels = allModels.filter((item) => item.enabled);
+
     const modelList = await pMap(
       enabledProviders,
       async (provider) => {
         const aiModels = await this.fetchBuiltinModels(provider.id);
 
         return (aiModels || [])
-          .filter((i) => i.enabled)
-          .map<EnabledAiModel>((item) => ({
-            ...item,
-            abilities: item.abilities || {},
-            providerId: provider.id,
-          }));
+          .map<EnabledAiModel & { enabled?: boolean | null }>((item) => {
+            const user = allModels.find((m) => m.id === item.id && m.providerId === provider.id);
+
+            return {
+              abilities: !!user ? user.abilities : item.abilities || {},
+              config: !!user ? user.config : item.config,
+              contextWindowTokens: !!user ? user.contextWindowTokens : item.contextWindowTokens,
+              displayName: user?.displayName || item.displayName,
+              enabled: !!user ? user.enabled : item.enabled,
+              id: item.id,
+              providerId: provider.id,
+              sort: !!user ? user.sort : undefined,
+              type: item.type,
+            };
+          })
+          .filter((i) => i.enabled);
       },
       { concurrency: 10 },
     );
@@ -100,6 +112,9 @@ export class AiInfraRepos {
     return mergeArrayById(defaultModels, aiModels) as AiProviderModelListItem[];
   };
 
+  /**
+   * Fetch builtin models from config
+   */
   private fetchBuiltinModels = async (
     providerId: string,
   ): Promise<AiProviderModelListItem[] | undefined> => {
